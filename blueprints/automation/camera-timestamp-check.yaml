@@ -1,0 +1,130 @@
+blueprint:
+  name: Camera Timestamp Check
+  description: >
+    This blueprint will check the timestamp overlays on your security cameras and send a notification if the timestamp is not within a specified range of the current time. This can help ensure that your camera's time is synchronized with your Home Assistant instance. A conversation agent is used to extract the timestamp from the camera image overlay. The blueprint supports multiple cameras and can notify you via a mobile device or Telegram.
+  domain: automation
+  source_url: https://github.com/rsiv/home-assistant/blob/main/blueprints/automation/camera-timestamp-check.yaml
+
+  input:
+    cameras:
+      name: Cameras
+      description: One or more cameras to check
+      selector:
+        entity:
+          filter:
+            domain: camera
+          multiple: true
+    trigger_times:
+      name: Time
+      description: Time of the day to perform the daily timestamp check
+      default: "09:00:00"
+      selector:
+        time:
+    notify_device:
+      name: Mobile device
+      description: Select a mobile device to notify
+      selector:
+        device:
+          filter:
+            integration: mobile_app
+    advanced:
+      name: Additional options
+      icon: mdi:cog
+      description: Additional options
+      collapsed: true
+      input:            
+        max_diff_seconds:
+          name: Max time difference
+          description: Max allowed difference between camera time and system time
+          default: 60
+          selector:
+            number:
+              max: 3600
+              min: 0
+              unit_of_measurement: seconds
+        conversation_action:
+          name: Conversation action
+          description: Conversation agent action to use for timestamp extraction
+          default: google_generative_ai_conversation.generate_content
+          selector:
+            text:
+        prompt:
+          name: Prompt
+          description: Conversation prompt to use for timestamp extraction
+          default: Extract the timestamp from the overlay in this surveillance camera image. Return just the value exactly as shown.
+          selector:
+            text:
+        temp_dir:
+          name: Temporary directory
+          description: Temporary directory for storing processed images (one per camera)
+          default: /media/camera-timestamp-check
+          selector:
+            text:
+        telegram_chat_id:
+          name: Telegram Chat ID (Optional)
+          description: |
+            The chat ID to send telegram notifications to.
+            If set, this will disable notifications to the mobile device set above
+          default: ""
+
+mode: queued
+max: 10
+
+trigger:
+  - platform: time
+    at: !input trigger_times
+
+variables:
+  cameras: !input cameras
+  max_diff_seconds: !input max_diff_seconds
+  conversation_action: !input conversation_action
+  prompt: !input prompt
+  temp_dir: !input temp_dir
+  telegram_chat_id: !input telegram_chat_id
+  notify_telegram: "{{ true if (telegram_chat_id | length > 0) else false }}"
+
+action:
+  - repeat:
+      for_each: "{{ cameras }}"
+      sequence:
+        - variables:
+            camera_entity: "{{ repeat.item }}"
+            camera_name: "{{ state_attr(camera_entity, 'friendly_name') }}"
+            snapshot_file: "{{ temp_dir }}/snapshot-{{camera_entity}}.jpg"
+        - action: camera.snapshot
+          data:
+            filename: "{{ snapshot_file }}"
+          target:
+            entity_id: "{{ camera_entity }}"
+        - action: "{{ conversation_action }}"
+          data:
+            filenames: "{{ snapshot_file }}"
+            prompt: "{{ prompt }}"
+          response_variable: response
+        - variables:
+            camera_time: "{{ as_timestamp(response.text, default='unknown') }}"
+            time_diff: unknown
+            message: "{{ camera_name }} camera time unknown: {{ response.text }}"
+        - if:
+            - condition: template
+              value_template: "{{ camera_time != 'unknown' }}"
+          then:
+            - variables:
+                system_time: "{{ as_timestamp(now()) }}"
+                time_diff: "{{ (camera_time - system_time) | round(0, default=1000) }}"
+                message: "{{ camera_name }} camera time is off by {{ time_diff }} seconds: {{ response.text }}"
+        - condition: template
+          value_template: "{{ time_diff == 'unknown' or time_diff | abs > max_diff_seconds }}"
+        - choose:
+          - conditions: "{{ notify_telegram }}"
+            sequence:
+              - action: telegram_bot.send_message
+                data:
+                  target: "{{ telegram_chat_id }}"
+                  message: "{{ message }}"
+          default:
+          - device_id: !input notify_device
+            domain: mobile_app
+            type: notify
+            title: Camera timestamp check
+            message: "{{ message }}"
