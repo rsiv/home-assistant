@@ -56,7 +56,9 @@ blueprint:
             text:
         temp_dir:
           name: Temporary directory
-          description: Temporary directory for storing processed images (one per camera)
+          description: |
+            Temporary directory for storing processed images (one image per camera). 
+            Try `/config/www/camera-timestamp-check` if the default value does not work.
           default: /media/camera-timestamp-check
           selector:
             text:
