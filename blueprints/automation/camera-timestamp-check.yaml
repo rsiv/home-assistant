@@ -91,6 +91,7 @@ action:
             camera_entity: "{{ repeat.item }}"
             camera_name: "{{ state_attr(camera_entity, 'friendly_name') }}"
             snapshot_file: "{{ temp_dir }}/snapshot-{{camera_entity}}.jpg"
+            system_time: "{{ as_timestamp(now()) }}"
         - action: camera.snapshot
           data:
             filename: "{{ snapshot_file }}"
@@ -110,7 +111,6 @@ action:
               value_template: "{{ camera_time != 'unknown' }}"
           then:
             - variables:
-                system_time: "{{ as_timestamp(now()) }}"
                 time_diff: "{{ (camera_time - system_time) | round(0, default=1000) }}"
                 message: "{{ camera_name }} camera time is off by {{ time_diff }} seconds: {{ response.text }}"
         - condition: template
