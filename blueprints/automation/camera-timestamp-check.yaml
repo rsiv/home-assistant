@@ -42,24 +42,18 @@ blueprint:
               max: 3600
               min: 0
               unit_of_measurement: seconds
-        conversation_action:
-          name: Conversation action
-          description: Conversation agent action to use for timestamp extraction
-          default: google_generative_ai_conversation.generate_content
+        ai_task:
+          name: AI Task
+          description: AI task to use for timestamp extraction
+          default: ai_task.google_ai_task
           selector:
-            text:
+            entity:
+              filter:
+                domain: ai_task
         prompt:
           name: Prompt
-          description: Conversation prompt to use for timestamp extraction
+          description: Prompt to use for timestamp extraction
           default: Extract the timestamp from the overlay in this surveillance camera image. Return just the value exactly as shown.
-          selector:
-            text:
-        temp_dir:
-          name: Temporary directory
-          description: |
-            Temporary directory for storing processed images (one image per camera). 
-            Try `/config/www/camera-timestamp-check` if the default value does not work.
-          default: /media/camera-timestamp-check
           selector:
             text:
         telegram_chat_id:
@@ -79,9 +73,8 @@ trigger:
 variables:
   cameras: !input cameras
   max_diff_seconds: !input max_diff_seconds
-  conversation_action: !input conversation_action
+  ai_task: !input ai_task
   prompt: !input prompt
-  temp_dir: !input temp_dir
   telegram_chat_id: !input telegram_chat_id
   notify_telegram: "{{ true if (telegram_chat_id | length > 0) else false }}"
 
@@ -92,29 +85,32 @@ action:
         - variables:
             camera_entity: "{{ repeat.item }}"
             camera_name: "{{ state_attr(camera_entity, 'friendly_name') }}"
-            snapshot_file: "{{ temp_dir }}/snapshot-{{camera_entity}}.jpg"
             system_time: "{{ as_timestamp(now()) }}"
-        - action: camera.snapshot
+        - action: ai_task.generate_data
           data:
-            filename: "{{ snapshot_file }}"
-          target:
-            entity_id: "{{ camera_entity }}"
-        - action: "{{ conversation_action }}"
-          data:
-            filenames: "{{ snapshot_file }}"
-            prompt: "{{ prompt }}"
+            instructions: "{{ prompt }}"
+            attachments:
+              media_content_id: "media-source://camera/{{camera_entity}}"
+              media_content_type: image/jpeg            
+            structure:
+              timestamp:
+                selector:
+                  datetime:
+            entity_id: "{{ ai_task }}"
+            task_name: extract timestamp
           response_variable: response
         - variables:
-            camera_time: "{{ as_timestamp(response.text, default='unknown') }}"
+            fixed_timestamp: '{{ response.data.timestamp[:19] }}'
+            camera_time: '{{ as_timestamp(fixed_timestamp, default=''unknown'') }}'
             time_diff: unknown
-            message: "{{ camera_name }} camera time unknown: {{ response.text }}"
+            message: "{{ camera_name }} camera time unknown: {{ response.data }}"
         - if:
             - condition: template
               value_template: "{{ camera_time != 'unknown' }}"
           then:
             - variables:
                 time_diff: "{{ (camera_time - system_time) | round(0, default=1000) }}"
-                message: "{{ camera_name }} camera time is off by {{ time_diff }} seconds: {{ response.text }}"
+                message: "{{ camera_name }} camera time is off by {{ time_diff }} seconds: {{ fixed_timestamp }}"
         - condition: template
           value_template: "{{ time_diff == 'unknown' or time_diff | abs > max_diff_seconds }}"
         - choose:
