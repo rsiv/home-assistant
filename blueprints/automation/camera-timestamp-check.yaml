@@ -1,7 +1,7 @@
 blueprint:
   name: Camera Timestamp Check
   description: |
-    This blueprint  will check the timestamp overlays on your security
+    This blueprint will check the timestamp overlays on your security
     cameras and send a notification if the timestamp is not within a specified range
     of the current time. This can help ensure that your camera's time is synchronized
     with your Home Assistant instance. A conversation agent is used to extract the
@@ -27,7 +27,8 @@ blueprint:
         time: {}
     notify_device:
       name: Mobile device
-      description: Select a mobile device to notify
+      description: Select a mobile device to notify. Not used if Telegram notify is set.
+      default:
       selector:
         device:
           filter:
@@ -63,11 +64,16 @@ blueprint:
             Do not set timezone. Do not include milliseconds.
           selector:
             text:
-        telegram_chat_id:
-          name: Telegram Chat ID (Optional)
+        telegram_entity:
+          name: Telegram notify (Optional)
           description: |
-            The chat ID to send telegram notifications to.
+            Entity to send telegram notifications to.
             If set, this will disable notifications to the mobile device set above
+          selector:
+            entity:
+              domain: notify
+              integration: telegram_bot
+              multiple: false
           default: ""
 
 mode: queued
@@ -82,8 +88,8 @@ variables:
   max_diff_seconds: !input max_diff_seconds
   ai_task: !input ai_task
   prompt: !input prompt
-  telegram_chat_id: !input telegram_chat_id
-  notify_telegram: "{{ true if (telegram_chat_id | length > 0) else false }}"
+  telegram_entity: !input telegram_entity
+  notify_telegram: "{{ telegram_entity | length > 0 }}"
 
 action:
   - repeat:
@@ -97,8 +103,8 @@ action:
           data:
             instructions: "{{ prompt }}"
             attachments:
-              media_content_id: "media-source://camera/{{camera_entity}}"
-              media_content_type: image/jpeg            
+              - media_content_id: "media-source://camera/{{camera_entity}}"
+                media_content_type: image/jpeg
             structure:
               timestamp:
                 description: >-
@@ -111,7 +117,7 @@ action:
           response_variable: response
         - variables:
             fixed_timestamp: "{{ response.data.timestamp[:19] }}"
-            camera_time: "{{ as_timestamp(fixed_timestamp, default=''unknown'') }}"
+            camera_time: "{{ as_timestamp(fixed_timestamp, default='unknown') }}"
             time_diff: unknown
             message: "{{ camera_name }} camera time unknown: {{ response.data }}"
         - if:
@@ -128,7 +134,7 @@ action:
             sequence:
               - action: telegram_bot.send_message
                 data:
-                  target: "{{ telegram_chat_id }}"
+                  entity_id: "{{ telegram_entity }}"
                   message: "{{ message }}"
           default:
           - device_id: !input notify_device
