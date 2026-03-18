@@ -1,7 +1,12 @@
 blueprint:
   name: Camera Timestamp Check
-  description: >
-    This blueprint will check the timestamp overlays on your security cameras and send a notification if the timestamp is not within a specified range of the current time. This can help ensure that your camera's time is synchronized with your Home Assistant instance. A conversation agent is used to extract the timestamp from the camera image overlay. The blueprint supports multiple cameras and can notify you via a mobile device or Telegram.
+  description: |
+    This blueprint  will check the timestamp overlays on your security
+    cameras and send a notification if the timestamp is not within a specified range
+    of the current time. This can help ensure that your camera's time is synchronized
+    with your Home Assistant instance. A conversation agent is used to extract the
+    timestamp from the camera image overlay. The blueprint supports multiple cameras
+    and can notify you via a mobile device or Telegram.
   domain: automation
   source_url: https://github.com/rsiv/home-assistant/blob/main/blueprints/automation/camera-timestamp-check.yaml
 
@@ -19,7 +24,7 @@ blueprint:
       description: Time of the day to perform the daily timestamp check
       default: "09:00:00"
       selector:
-        time:
+        time: {}
     notify_device:
       name: Mobile device
       description: Select a mobile device to notify
@@ -53,7 +58,9 @@ blueprint:
         prompt:
           name: Prompt
           description: Prompt to use for timestamp extraction
-          default: Extract the timestamp from the overlay in this surveillance camera image. Return just the value exactly as shown.
+          default: Extract the timestamp from the overlay in this surveillance camera
+            image. The timestamp format is expected to be YYYY-MM-DD HH:MM:SS
+            Do not set timezone. Do not include milliseconds.
           selector:
             text:
         telegram_chat_id:
@@ -94,14 +101,17 @@ action:
               media_content_type: image/jpeg            
             structure:
               timestamp:
+                description: >-
+                  Overlay timestamp as 19 chars: YYYY-MM-DD HH:MM:SS (no fractions)
+                required: true
                 selector:
-                  datetime:
+                  text: {}
             entity_id: "{{ ai_task }}"
             task_name: extract timestamp
           response_variable: response
         - variables:
-            fixed_timestamp: '{{ response.data.timestamp[:19] }}'
-            camera_time: '{{ as_timestamp(fixed_timestamp, default=''unknown'') }}'
+            fixed_timestamp: "{{ response.data.timestamp[:19] }}"
+            camera_time: "{{ as_timestamp(fixed_timestamp, default=''unknown'') }}"
             time_diff: unknown
             message: "{{ camera_name }} camera time unknown: {{ response.data }}"
         - if:
